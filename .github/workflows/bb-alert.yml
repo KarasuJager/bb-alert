@@ -2,11 +2,13 @@ name: bb-alert
 
 on:
   schedule:
+    # Cada 15 minutos (GitHub puede retrasar unos minutos los cron).
+    # La fuente se actualiza cada ~30 min, asi que no ganas nada bajando mas.
     - cron: "*/15 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # para lanzarlo a mano desde la pestaña Actions
 
 permissions:
-  contents: write
+  contents: write         # para guardar seen.json en el repo
 
 concurrency:
   group: bb-alert
@@ -24,12 +26,13 @@ jobs:
 
       - name: Buscar programas nuevos
         env:
-          PLATFORMS: hackerone,bugcrowd,yeswehack
-          ONLY_BOUNTY: "0"
+          PLATFORMS: hackerone,bugcrowd,yeswehack   # añade ,intigriti si quieres
+          ONLY_BOUNTY: "0"                         # "1" = solo programas con recompensa
           CALL_LANG: es-ES-Standard-A
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           CALLMEBOT_USER: ${{ secrets.CALLMEBOT_USER }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python3 alert.py
 
       - name: Guardar estado

@@ -19,6 +19,7 @@ Variables de entorno:
   TG_CHAT_ID         tu chat_id de Telegram
   CALLMEBOT_USER     tu @usuario de Telegram (o telefono +34...) para la llamada
   CALL_LANG          voz de la llamada (por defecto es-ES-Standard-A)
+  NTFY_TOPIC         tema secreto de ntfy.sh para la alarma en el movil
   DRY_RUN            "1" = no envia nada, solo imprime
 """
 import json
@@ -137,6 +138,24 @@ def send_call(text):
         print(f"[!] CallMeBot fallo: {e}")
 
 
+def send_ntfy(title, body, click_url=None):
+    """Alarma en el movil via la app ntfy (prioridad maxima)."""
+    topic = os.environ.get("NTFY_TOPIC")
+    if not topic:
+        print("[i] NTFY_TOPIC no configurado, salto ntfy")
+        return
+    params = {"title": title, "priority": "5", "tags": "rotating_light"}
+    if click_url:
+        params["click"] = click_url
+    url = f"https://ntfy.sh/{topic}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(url, data=body.encode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            print(f"[+] ntfy: HTTP {r.status}")
+    except Exception as e:
+        print(f"[!] ntfy fallo: {e}")
+
+
 def html_escape(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -207,6 +226,8 @@ def main():
         send_telegram(msg[:4000])
     except Exception as e:
         print(f"[!] Telegram fallo: {e}")
+    ntfy_body = "\n".join(f"{p['name']} ({p['platform']}) {p['url']}" for p in new)
+    send_ntfy(call_text, ntfy_body[:3500], new[0]["url"] if len(new) == 1 else None)
     send_call(call_text)
     return 0
 
