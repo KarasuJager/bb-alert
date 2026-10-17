@@ -1,0 +1,40 @@
+name: bb-alert
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bb-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar bounty-targets-data
+        run: git clone --depth 1 https://github.com/arkadiyt/bounty-targets-data.git btd
+
+      - name: Buscar programas nuevos
+        env:
+          PLATFORMS: hackerone,bugcrowd,yeswehack
+          ONLY_BOUNTY: "0"
+          CALL_LANG: es-ES-Standard-A
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          CALLMEBOT_USER: ${{ secrets.CALLMEBOT_USER }}
+        run: python3 alert.py
+
+      - name: Guardar estado
+        run: |
+          git config user.name "bb-alert"
+          git config user.email "bb-alert@users.noreply.github.com"
+          git add seen.json
+          git diff --cached --quiet || { git commit -m "update seen.json" && git push; }
