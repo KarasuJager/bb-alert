@@ -15,6 +15,9 @@ Variables de entorno:
   STATE_FILE         fichero de estado (por defecto ./seen.json)
   PLATFORMS          lista separada por comas (por defecto hackerone,bugcrowd,yeswehack)
   ONLY_BOUNTY        "1" = ignorar VDPs sin recompensa (por defecto "0")
+  H1_SUPPRESS_MATURE "1" = no alertar de programas H1 con historial de reportes,
+                     es decir re-listados del directorio, no lanzamientos reales
+                     (por defecto "1"); se absorben en seen.json igualmente
   TG_BOT_TOKEN       token del bot de Telegram (mensaje con detalles y enlaces)
   TG_CHAT_ID         tu chat_id de Telegram
   CALLMEBOT_USER     tu @usuario de Telegram (o telefono +34...) para la llamada
@@ -33,14 +36,18 @@ STATE_FILE = os.environ.get("STATE_FILE", "seen.json")
 PLATFORMS = [p.strip() for p in os.environ.get("PLATFORMS", "hackerone,bugcrowd,yeswehack").split(",") if p.strip()]
 ONLY_BOUNTY = os.environ.get("ONLY_BOUNTY", "0") == "1"
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
+# "1" = no alertar de programas H1 que ya tienen historial de reportes
+# (re-listados del directorio, no lanzamientos reales). Los absorbe en seen.
+H1_SUPPRESS_MATURE = os.environ.get("H1_SUPPRESS_MATURE", "1") == "1"
 
 # Si una plataforma devuelve menos de este % de los programas ya conocidos,
 # asumimos que el scraper de la fuente ha fallado y no la procesamos.
 MIN_RATIO = 0.5
 
 
-def _norm(name, key, url, bounty, max_reward):
-    return {"name": (name or "").strip(), "key": key, "url": url, "bounty": bounty, "max": max_reward}
+def _norm(name, key, url, bounty, max_reward, mature=False):
+    return {"name": (name or "").strip(), "key": key, "url": url, "bounty": bounty,
+            "max": max_reward, "mature": mature}
 
 
 def parse_hackerone(d):
@@ -48,7 +55,14 @@ def parse_hackerone(d):
     for p in d:
         if p.get("submission_state") != "open":
             continue
-        out.append(_norm(p["name"], f"h1:{p['handle']}", p["url"], bool(p.get("offers_bounties")), None))
+        # La fuente no trae fecha de lanzamiento. Pero un programa recien
+        # lanzado no tiene historial de gestion de reportes: si ya ha
+        # respondido o resuelto algun reporte, NO es nuevo (es un re-listado
+        # del directorio de H1). Esto filtra falsos positivos tipo Rocket.Chat.
+        mature = (p.get("average_time_to_first_program_response") is not None
+                  or p.get("average_time_to_report_resolved") is not None)
+        out.append(_norm(p["name"], f"h1:{p['handle']}", p["url"],
+                         bool(p.get("offers_bounties")), None, mature=mature))
     return out
 
 
@@ -184,16 +198,21 @@ def main():
             print(f"[!] {label}: solo {len(programs)} programas vs {len(seen)} conocidos, posible fallo de la fuente; salto")
             continue
 
+        suppressed = 0
         for p in programs:
             if p["key"] in seen:
                 continue
-            seen.add(p["key"])
+            seen.add(p["key"])  # absorbido en estado: no se re-evalua nunca mas
+            if H1_SUPPRESS_MATURE and p.get("mature"):
+                suppressed += 1  # tiene historial -> no es un lanzamiento real
+                continue
             if ONLY_BOUNTY and not p["bounty"]:
                 continue
             p["platform"] = label
             new.append(p)
         state[plat] = sorted(seen)
-        print(f"[i] {label}: {len(programs)} programas, {len(seen)} conocidos")
+        extra = f", {suppressed} descartados por historial (no nuevos de verdad)" if suppressed else ""
+        print(f"[i] {label}: {len(programs)} programas, {len(seen)} conocidos{extra}")
 
     save_state(state)
 
